@@ -101,7 +101,7 @@ class DictEncoderBase {
   MemPool* pool_;
 };
 
-template<typename T>
+template<typename PHYSICAL_TYPE>
 class DictEncoder : public DictEncoderBase {
  public:
   DictEncoder(MemPool* pool, int encoded_value_size) :
@@ -113,7 +113,7 @@ class DictEncoder : public DictEncoderBase {
   /// full (in which case the caller should give up on dictionary encoding). Note that
   /// this does not actually write any data, just buffers the value's index to be
   /// written later.
-  int Put(const T& value);
+  int Put(const PHYSICAL_TYPE& value);
 
   virtual void WriteDict(uint8_t* buffer);
 
@@ -133,10 +133,10 @@ class DictEncoder : public DictEncoderBase {
 
   /// Node in the chained hash table.
   struct Node {
-    Node(const T& v, const NodeIndex& n) : value(v), next(n) { }
+    Node(const PHYSICAL_TYPE& v, const NodeIndex& n) : value(v), next(n) { }
 
     /// The dictionary value.
-    T value;
+    PHYSICAL_TYPE value;
 
     /// Index into nodes_ for the next Node in the chain. INVALID_INDEX indicates end.
     NodeIndex next;
@@ -154,13 +154,13 @@ class DictEncoder : public DictEncoderBase {
   int encoded_value_size_;
 
   /// Hash function for mapping a value to a bucket.
-  inline uint32_t Hash(const T& value) const;
+  inline uint32_t Hash(const PHYSICAL_TYPE& value) const;
 
   /// Adds value to the hash table and updates dict_encoded_size_. Returns the
   /// number of bytes added to dict_encoded_size_.
   /// bucket gives a pointer to the location (i.e. chain) to add the value
   /// so that the hash for value doesn't need to be recomputed.
-  int AddToTable(const T& value, NodeIndex* bucket);
+  int AddToTable(const PHYSICAL_TYPE& value, NodeIndex* bucket);
 };
 
 /// Decoder class for dictionary encoded data. This class does not allocate any
@@ -196,7 +196,7 @@ class DictDecoderBase {
   RleDecoder data_decoder_;
 };
 
-template<typename T>
+template<typename LOGICAL_TYPE, parquet::Type::type PHYSICAL_TYPE>
 class DictDecoder : public DictDecoderBase {
  public:
   /// Construct empty dictionary.
@@ -215,7 +215,7 @@ class DictDecoder : public DictDecoderBase {
   virtual int num_entries() const { return dict_.size(); }
 
   virtual void GetValue(int index, void* buffer) {
-    T* val_ptr = reinterpret_cast<T*>(buffer);
+    LOGICAL_TYPE* val_ptr = reinterpret_cast<LOGICAL_TYPE*>(buffer);
     DCHECK_GE(index, 0);
     DCHECK_LT(index, dict_.size());
     // TODO: is there any circumstance where this should be a memcpy?
@@ -225,14 +225,14 @@ class DictDecoder : public DictDecoderBase {
   /// Returns the next value.  Returns false if the data is invalid.
   /// For StringValues, this does not make a copy of the data.  Instead,
   /// the string data is from the dictionary buffer passed into the c'tor.
-  bool GetNextValue(T* value);
+  bool GetNextValue(LOGICAL_TYPE* value);
 
  private:
-  std::vector<T> dict_;
+  std::vector<LOGICAL_TYPE> dict_;
 };
 
-template<typename T>
-inline int DictEncoder<T>::Put(const T& value) {
+template<typename PHYSICAL_TYPE>
+inline int DictEncoder<PHYSICAL_TYPE>::Put(const PHYSICAL_TYPE& value) {
   NodeIndex* bucket = &buckets_[Hash(value) & (HASH_TABLE_SIZE - 1)];
   NodeIndex i = *bucket;
   // Look for the value in the dictionary.
@@ -252,8 +252,8 @@ inline int DictEncoder<T>::Put(const T& value) {
   return AddToTable(value, bucket);
 }
 
-template<typename T>
-inline uint32_t DictEncoder<T>::Hash(const T& value) const {
+template<typename PHYSICAL_TYPE>
+inline uint32_t DictEncoder<PHYSICAL_TYPE>::Hash(const PHYSICAL_TYPE& value) const {
   return HashUtil::Hash(&value, sizeof(value), 0);
 }
 
@@ -262,8 +262,9 @@ inline uint32_t DictEncoder<StringValue>::Hash(const StringValue& value) const {
   return HashUtil::Hash(value.ptr, value.len, 0);
 }
 
-template<typename T>
-inline int DictEncoder<T>::AddToTable(const T& value, NodeIndex* bucket) {
+template<typename PHYSICAL_TYPE>
+inline int DictEncoder<PHYSICAL_TYPE>::AddToTable(const PHYSICAL_TYPE& value,
+    NodeIndex* bucket) {
   DCHECK_GT(encoded_value_size_, 0);
   // Prepend the new node to this bucket's chain.
   nodes_.push_back(Node(value, *bucket));
@@ -287,8 +288,9 @@ inline int DictEncoder<StringValue>::AddToTable(const StringValue& value,
 }
 
 // Force inlining - GCC does not always inline this into hot loops in Parquet scanner.
-template <typename T>
-ALWAYS_INLINE inline bool DictDecoder<T>::GetNextValue(T* value) {
+template<typename LOGICAL_TYPE, parquet::Type::type PHYSICAL_TYPE>
+ALWAYS_INLINE inline bool DictDecoder<LOGICAL_TYPE, PHYSICAL_TYPE>::GetNextValue(
+    LOGICAL_TYPE* value) {
   int index = -1; // Initialize to avoid compiler warning.
   bool result = data_decoder_.Get(&index);
   // Use & to avoid branches.
@@ -301,7 +303,8 @@ ALWAYS_INLINE inline bool DictDecoder<T>::GetNextValue(T* value) {
 
 // Force inlining - GCC does not always inline this into hot loops in Parquet scanner.
 template <>
-ALWAYS_INLINE inline bool DictDecoder<Decimal16Value>::GetNextValue(
+ALWAYS_INLINE inline bool
+DictDecoder<Decimal16Value, parquet::Type::FIXED_LEN_BYTE_ARRAY>::GetNextValue(
     Decimal16Value* value) {
   int index;
   bool result = data_decoder_.Get(&index);
@@ -315,8 +318,24 @@ ALWAYS_INLINE inline bool DictDecoder<Decimal16Value>::GetNextValue(
   return true;
 }
 
-template<typename T>
-inline void DictEncoder<T>::WriteDict(uint8_t* buffer) {
+template <>
+ALWAYS_INLINE inline bool
+DictDecoder<Decimal16Value, parquet::Type::BYTE_ARRAY>::GetNextValue(
+    Decimal16Value* value) {
+  int index;
+  bool result = data_decoder_.Get(&index);
+  if (!result) return false;
+  if (index >= dict_.size()) return false;
+  // Workaround for IMPALA-959. Use memcpy instead of '=' so addresses
+  // do not need to be 16 byte aligned.
+  uint8_t* addr = reinterpret_cast<uint8_t*>(dict_.data());
+  addr = addr + index * sizeof(*value);
+  memcpy(value, addr, sizeof(*value));
+  return true;
+}
+
+template<typename PHYSICAL_TYPE>
+inline void DictEncoder<PHYSICAL_TYPE>::WriteDict(uint8_t* buffer) {
   for (const Node& node: nodes_) {
     buffer += ParquetPlainEncoder::Encode(node.value, encoded_value_size_, buffer);
   }
@@ -336,15 +355,15 @@ inline int DictEncoderBase::WriteData(uint8_t* buffer, int buffer_len) {
   return 1 + encoder.len();
 }
 
-template<typename T>
-inline bool DictDecoder<T>::Reset(uint8_t* dict_buffer, int dict_len,
-    int fixed_len_size) {
+template<typename LOGICAL_TYPE, parquet::Type::type PHYSICAL_TYPE>
+inline bool DictDecoder<LOGICAL_TYPE, PHYSICAL_TYPE>::Reset(uint8_t* dict_buffer,
+    int dict_len, int fixed_len_size) {
   dict_.clear();
   uint8_t* end = dict_buffer + dict_len;
   while (dict_buffer < end) {
-    T value;
-    int decoded_len =
-        ParquetPlainEncoder::Decode(dict_buffer, end, fixed_len_size, &value);
+    LOGICAL_TYPE value;
+    int decoded_len = ParquetPlainEncoder::Decode<LOGICAL_TYPE, PHYSICAL_TYPE>(
+        dict_buffer, end,fixed_len_size, &value);
     if (UNLIKELY(decoded_len < 0)) return false;
     dict_buffer += decoded_len;
     dict_.push_back(value);
