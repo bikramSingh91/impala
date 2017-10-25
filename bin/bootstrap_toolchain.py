@@ -139,6 +139,9 @@ def download_package(destination, package, compiler, platform_release=None):
   remove_existing_package(destination, package.name, package.version)
 
   toolchain_build_id = os.environ["IMPALA_TOOLCHAIN_BUILD_ID"]
+  # TODO: remove the next 2 lines. added only because these tools were updated in the toolchain, but not in impala
+  if package.name == "breakpad" or package.name == "gperftools" or package.name == "thrift":
+    toolchain_build_id = "482-c2361403fc"
   label = get_platform_release_label(release=platform_release)
   format_params = {'product': package.name, 'version': package.version,
       'compiler': compiler, 'label': label, 'toolchain_build_id': toolchain_build_id}
@@ -423,7 +426,7 @@ if __name__ == "__main__":
       "flatbuffers", "gcc", "gflags", "glog", "gperftools", "gtest", "libev",
       "lz4", "openldap", "openssl", "protobuf",
       "rapidjson", "re2", "snappy", "thrift", "tpc-h", "tpc-ds", "zlib"])
-  packages.insert(0, Package("llvm", "3.9.1-asserts"))
+  packages.insert(0, Package("llvm", "5.0.1-asserts"))
   bootstrap(toolchain_root, packages)
 
   # Download the CDH components if necessary.
