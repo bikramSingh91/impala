@@ -115,8 +115,12 @@ class BaseImpalaService(object):
             (metric_name, expected_value, value))
       LOG.info("Sleeping %ds before next retry." % interval)
       sleep(interval)
-    assert 0, 'Metric value %s did not reach value %s in %ss' %\
-        (metric_name, expected_value, timeout)
+    assert 0, 'Metric value %s did not reach value %s in %ss \n memz: %s ' \
+              '\n metrics: %s \n queries: %s' % \
+              (metric_name, expected_value, timeout,
+               json.loads(self.read_debug_webpage('memz?json')),
+               json.loads(self.read_debug_webpage('metrics?json')),
+               json.loads(self.read_debug_webpage('queries?json')))
 
 # Allows for interacting with an Impalad instance to perform operations such as creating
 # new connections or accessing the debug webpage.
