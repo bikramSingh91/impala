@@ -24,6 +24,7 @@ import logging
 import re
 import urllib
 from time import sleep, time
+import subprocess
 
 from tests.common.impala_connection import create_connection, create_ldap_connection
 from TCLIService import TCLIService
@@ -116,13 +117,15 @@ class BaseImpalaService(object):
       LOG.info("Sleeping %ds before next retry." % interval)
       sleep(interval)
     assert 0, 'Metric value %s did not reach value %s in %ss\nDumping impalad debug ' \
-              'pages:\nmemz: %s\nmetrics: %s\nqueries: %s\nthreadz: %s\nrpcz: %s' % \
-              (metric_name, expected_value, timeout,
-               json.dumps(self.read_debug_webpage('memz?json')),
-               json.dumps(self.read_debug_webpage('metrics?json')),
-               json.dumps(self.read_debug_webpage('queries?json')),
-               json.dumps(self.read_debug_webpage('threadz?json')),
-               json.dumps(self.read_debug_webpage('rpcz?json')))
+              'pages:\nmemz: %s\nthreads on the impalad1: %s \nthreads on the impalad2: %s \nthreads on the impalad3: %s' % \
+              (metric_name, expected_value, json.dumps(self.read_debug_webpage('memz?json')), timeout, subprocess.check_output(
+                "gdb -ex \"set pagination 0\" -ex \"thread apply all bt\"  --batch -p $(pgrep impalad | sed -n 1p)",
+                shell=True), subprocess.check_output(
+                "gdb -ex \"set pagination 0\" -ex \"thread apply all bt\"  --batch -p $(pgrep impalad | sed -n 2p)",
+                shell=True), subprocess.check_output(
+                "gdb -ex \"set pagination 0\" -ex \"thread apply all bt\"  --batch -p $(pgrep impalad | sed -n 3p)",
+                shell=True))
+
 
 # Allows for interacting with an Impalad instance to perform operations such as creating
 # new connections or accessing the debug webpage.

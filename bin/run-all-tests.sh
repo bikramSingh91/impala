@@ -40,16 +40,16 @@ fi
 
 # Parametrized Test Options
 # Run FE Tests
-: ${FE_TEST:=true}
+: ${FE_TEST:=false}
 # Run Backend Tests
-: ${BE_TEST:=true}
+: ${BE_TEST:=false}
 # Run End-to-end Tests
 : ${EE_TEST:=true}
 : ${EE_TEST_FILES:=}
 # Run JDBC Test
-: ${JDBC_TEST:=true}
+: ${JDBC_TEST:=false}
 # Run Cluster Tests
-: ${CLUSTER_TEST:=true}
+: ${CLUSTER_TEST:=false}
 # Extra arguments passed to start-impala-cluster for tests
 : ${TEST_START_CLUSTER_ARGS:=}
 if [[ "${TARGET_FILESYSTEM}" == "local" ]]; then
@@ -173,10 +173,9 @@ do
   if [[ "$EE_TEST" == true ]]; then
     # Run end-to-end tests.
     # KERBEROS TODO - this will need to deal with ${KERB_ARGS}
-    if ! "${IMPALA_HOME}/tests/run-tests.py" ${COMMON_PYTEST_ARGS} ${EE_TEST_FILES}; then
-      #${KERB_ARGS};
-      TEST_RET_CODE=1
-    fi
+    while ${IMPALA_HOME}/tests/run-tests.py ${IMPALA_HOME}/tests/query_test/test_cancellation.py --verbose --exploration_strategy exhaustive --table_formats=parquet/none; do echo yes; done
+    #${KERB_ARGS};
+    TEST_RET_CODE=1
   fi
 
   if [[ "$JDBC_TEST" == true ]]; then

@@ -212,11 +212,12 @@ if __name__ == "__main__":
   # Run the remaining query tests in parallel
   base_args = ['-m', 'not execute_serially and not stress', '-n', NUM_CONCURRENT_TESTS]
   test_executor.run_tests(base_args + build_test_args('parallel'))
-
+  print test_executor.tests_failed
   # Finally, validate impalad/statestored metrics.
+  # reset status
+  test_executor.tests_failed = False
   args = build_test_args(base_name='verify-metrics', valid_dirs=['verifiers'])
   args.append('verifiers/test_verify_metrics.py')
   test_executor.run_tests(args)
-
   if test_executor.tests_failed:
     sys.exit(1)
